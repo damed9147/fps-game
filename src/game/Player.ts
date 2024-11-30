@@ -23,12 +23,14 @@ export class Player {
         this.scene = scene;
         this.velocity = new THREE.Vector3();
         
-        this.camera.position.set(0, this.playerHeight, 5);
+        // Start position with a slight offset to prevent immediate ground collision
+        this.camera.position.set(0, this.playerHeight + 0.5, 5);
         this.setupControls();
         this.createHand();
 
+        // Create player collider starting exactly at ground level
         this.collider = new THREE.Box3(
-            new THREE.Vector3(-this.playerWidth/2, -0.1, -this.playerWidth/2),
+            new THREE.Vector3(-this.playerWidth/2, 0, -this.playerWidth/2),
             new THREE.Vector3(this.playerWidth/2, this.playerHeight, this.playerWidth/2)
         );
         this.updateCollider();
@@ -115,6 +117,25 @@ export class Player {
             ),
             new THREE.Vector3(this.playerWidth, this.playerHeight + 0.2, this.playerWidth)
         );
+    }
+
+    public setInitialPosition(worldObjects: THREE.Box3[]) {
+        // Find the highest ground point at current x,z position
+        let highestY = -Infinity;
+        const currentPos = this.camera.position;
+        
+        for (const obj of worldObjects) {
+            if (currentPos.x >= obj.min.x && currentPos.x <= obj.max.x &&
+                currentPos.z >= obj.min.z && currentPos.z <= obj.max.z) {
+                highestY = Math.max(highestY, obj.max.y);
+            }
+        }
+
+        // If we found ground beneath us, position player above it
+        if (highestY !== -Infinity) {
+            this.camera.position.y = highestY + this.playerHeight + 0.1;
+            this.updateCollider();
+        }
     }
 
     public update(delta: number, worldObjects: THREE.Box3[]) {

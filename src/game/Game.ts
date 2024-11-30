@@ -19,6 +19,18 @@ export class Game {
         this.renderer.setSize(window.innerWidth, window.innerHeight);
         document.body.appendChild(this.renderer.domElement);
 
+        this.setupLights();
+        this.setupWorld();
+        
+        this.player = new Player(this.camera, this.scene);
+        // Set initial position after world is created
+        this.player.setInitialPosition(this.world.getColliders());
+
+        // Event listeners
+        window.addEventListener('resize', this.onWindowResize.bind(this));
+    }
+
+    private setupLights() {
         // Setup lighting
         const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
         this.scene.add(ambientLight);
@@ -26,13 +38,11 @@ export class Game {
         const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
         directionalLight.position.set(0, 50, 0);
         this.scene.add(directionalLight);
+    }
 
+    private setupWorld() {
         // Initialize game components
         this.world = new World(this.scene);
-        this.player = new Player(this.camera, this.scene);
-
-        // Event listeners
-        window.addEventListener('resize', this.onWindowResize.bind(this));
     }
 
     private onWindowResize() {
