@@ -5,8 +5,8 @@ export class Player {
     private scene: THREE.Scene;
     private velocity: THREE.Vector3;
     private moveSpeed: number = 8;
-    private jumpForce: number = 12;
-    private gravity: number = 25;
+    private jumpForce: number = 10; // Reduced jump height
+    private gravity: number = 20; // Reduced gravity
     private moveDirection: THREE.Vector3 = new THREE.Vector3();
     private controls: { [key: string]: boolean } = {};
     private collider: THREE.Box3;
@@ -17,6 +17,10 @@ export class Player {
     private mouseSensitivity: number = 0.002;
     private hand: THREE.Group;
     private grounded: boolean = false;
+    private initialPositionSet: boolean = false;
+    private maxSpeed: number = 15; // Maximum movement speed
+    private acceleration: number = 80; // Ground acceleration
+    private airAcceleration: number = 20; // Air acceleration
 
     constructor(camera: THREE.PerspectiveCamera, scene: THREE.Scene) {
         this.camera = camera;
@@ -119,72 +123,7 @@ export class Player {
         );
     }
 
-    public setInitialPosition(worldObjects: THREE.Box3[]) {
-        // Find the highest ground point at current x,z position
-        let highestY = -Infinity;
-        const currentPos = this.camera.position;
-        
-        for (const obj of worldObjects) {
-            if (currentPos.x >= obj.min.x && currentPos.x <= obj.max.x &&
-                currentPos.z >= obj.min.z && currentPos.z <= obj.max.z) {
-                highestY = Math.max(highestY, obj.max.y);
-            }
-        }
-
-        // If we found ground beneath us, position player above it
-        if (highestY !== -Infinity) {
-            this.camera.position.y = highestY + this.playerHeight + 0.1;
-            this.updateCollider();
-        }
-    }
-
-    public update(delta: number, worldObjects: THREE.Box3[]) {
-        // Get movement input
-        const input = new THREE.Vector3(
-            (this.controls['d'] ? 1 : 0) - (this.controls['a'] ? 1 : 0),
-            0,
-            (this.controls['s'] ? 1 : 0) - (this.controls['w'] ? 1 : 0)
-        );
-
-        // Convert input to world space
-        if (input.lengthSq() > 0) {
-            input.normalize();
-            const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(this.camera.quaternion);
-            forward.y = 0;
-            forward.normalize();
-            
-            const right = new THREE.Vector3(1, 0, 0).applyQuaternion(this.camera.quaternion);
-            right.y = 0;
-            right.normalize();
-
-            const moveDir = right.multiplyScalar(input.x).add(forward.multiplyScalar(-input.z));
-            
-            // Apply movement force
-            this.velocity.x += moveDir.x * this.moveSpeed * delta * 10;
-            this.velocity.z += moveDir.z * this.moveSpeed * delta * 10;
-        }
-
-        // Apply friction
-        const friction = this.grounded ? 0.9 : 0.98;
-        this.velocity.x *= Math.pow(friction, delta * 60);
-        this.velocity.z *= Math.pow(friction, delta * 60);
-
-        // Apply gravity
-        this.velocity.y -= this.gravity * delta;
-
-        // Handle jumping
-        if (this.controls[' '] && this.grounded) {
-            this.velocity.y = this.jumpForce;
-            this.grounded = false;
-        }
-
-        // Calculate new position
-        const newPos = this.camera.position.clone();
-        newPos.add(this.velocity.clone().multiplyScalar(delta));
-
-        // Check collisions and update position
-        this.grounded = false;
-
+    private handleCollisions(newPos: THREE.Vector3, delta: number, worldObjects: THREE.Box3[]): void {
         // Vertical collision check
         const verticalCollider = this.collider.clone();
         verticalCollider.min.y += this.velocity.y * delta;
@@ -205,7 +144,7 @@ export class Player {
             }
         }
 
-        // Horizontal collision check
+        // Horizontal collision check with sliding
         const horizontalCollider = this.collider.clone();
         horizontalCollider.min.x += this.velocity.x * delta;
         horizontalCollider.max.x += this.velocity.x * delta;
@@ -220,7 +159,6 @@ export class Player {
             }
         }
 
-        // Update position
         if (!horizontalCollision) {
             this.camera.position.x = newPos.x;
             this.camera.position.z = newPos.z;
@@ -245,23 +183,119 @@ export class Player {
             if (!xCollision) this.camera.position.x = newPos.x;
             if (!zCollision) this.camera.position.z = newPos.z;
 
-            if (xCollision) this.velocity.x = 0;
-            if (zCollision) this.velocity.z = 0;
+            if (xCollision) this.velocity.x *= 0.5; // Reduce bounce on wall collision
+            if (zCollision) this.velocity.z *= 0.5;
         }
 
         if (!verticalCollision) {
             this.camera.position.y = newPos.y;
         }
+    }
+
+    public setInitialPosition(worldObjects: THREE.Box3[]) {
+        if (worldObjects.length > 0) {
+            let maxY = -Infinity;
+            for (const obj of worldObjects) {
+                if (obj.max.y > maxY) {
+                    maxY = obj.max.y;
+                }
+            }
+            this.camera.position.y = maxY + this.playerHeight;
+            this.velocity.y = -0.1; // Start with a small downward velocity
+            this.initialPositionSet = true;
+        }
+    }
+
+    public update(delta: number, worldObjects: THREE.Box3[]) {
+        if (!this.initialPositionSet && worldObjects.length > 0) {
+            this.setInitialPosition(worldObjects);
+        }
+
+        // Get movement input
+        const input = new THREE.Vector3(
+            (this.controls['d'] ? 1 : 0) - (this.controls['a'] ? 1 : 0),
+            0,
+            (this.controls['s'] ? 1 : 0) - (this.controls['w'] ? 1 : 0)
+        );
+
+        // Convert input to world space
+        if (input.lengthSq() > 0) {
+            input.normalize();
+            const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(this.camera.quaternion);
+            forward.y = 0;
+            forward.normalize();
+            
+            const right = new THREE.Vector3(1, 0, 0).applyQuaternion(this.camera.quaternion);
+            right.y = 0;
+            right.normalize();
+
+            const moveDir = right.multiplyScalar(input.x).add(forward.multiplyScalar(-input.z));
+            moveDir.normalize();
+            
+            // Apply acceleration based on grounded state
+            const currentAccel = this.grounded ? this.acceleration : this.airAcceleration;
+            this.velocity.x += moveDir.x * currentAccel * delta;
+            this.velocity.z += moveDir.z * currentAccel * delta;
+        }
+
+        // Cap horizontal speed
+        const horizontalSpeed = new THREE.Vector2(this.velocity.x, this.velocity.z).length();
+        if (horizontalSpeed > this.maxSpeed) {
+            const scale = this.maxSpeed / horizontalSpeed;
+            this.velocity.x *= scale;
+            this.velocity.z *= scale;
+        }
+
+        // Apply friction with better ground control
+        const friction = this.grounded ? 0.98 : 0.85;
+        if (!input.lengthSq() || !this.grounded) {
+            this.velocity.x *= Math.pow(friction, delta * 60);
+            this.velocity.z *= Math.pow(friction, delta * 60);
+        }
+
+        // Vertical movement
+        if (!this.grounded) {
+            this.velocity.y -= this.gravity * delta;
+        } else {
+            this.velocity.y = -0.1; // Small downward force when grounded
+        }
+
+        // Handle jumping with better control
+        if (this.controls[' '] && this.grounded) {
+            this.velocity.y = this.jumpForce;
+            this.grounded = false;
+            // Preserve some horizontal momentum when jumping
+            this.velocity.x *= 0.9;
+            this.velocity.z *= 0.9;
+        }
+
+        // Calculate new position
+        const newPos = this.camera.position.clone();
+        newPos.add(this.velocity.clone().multiplyScalar(delta));
+
+        // Reset grounded state before collision checks
+        this.grounded = false;
+
+        // Handle collisions
+        this.handleCollisions(newPos, delta, worldObjects);
 
         // Update collider
         this.updateCollider();
 
-        // Update hand animation
+        // Smooth hand bobbing based on actual movement speed
         if (this.hand) {
-            const speed = Math.sqrt(this.velocity.x * this.velocity.x + this.velocity.z * this.velocity.z);
-            if (speed > 0.1) {
-                const bobAmount = Math.sin(Date.now() * 0.01) * 0.02 * (speed / this.moveSpeed);
+            const horizontalSpeed = new THREE.Vector2(this.velocity.x, this.velocity.z).length();
+            const normalizedSpeed = Math.min(horizontalSpeed / this.maxSpeed, 1);
+            if (this.grounded && normalizedSpeed > 0.1) {
+                const bobFrequency = 8; // Adjust for faster/slower bobbing
+                const bobAmount = Math.sin(Date.now() * 0.01 * bobFrequency) * 0.03 * normalizedSpeed;
                 this.hand.position.y = -0.3 + bobAmount;
+                // Add slight side-to-side movement
+                this.hand.position.x = 0.4 + Math.cos(Date.now() * 0.005 * bobFrequency) * 0.01 * normalizedSpeed;
+            } else {
+                // Smoothly return to default position when not moving
+                this.hand.position.y += (-0.3 - this.hand.position.y) * 0.1;
+                this.hand.position.x += (0.4 - this.hand.position.x) * 0.1;
             }
         }
     }
