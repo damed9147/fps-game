@@ -9,40 +9,66 @@ export class Game {
     private player: Player;
     private world: World;
     private clock: THREE.Clock;
+    private keys: { [key: string]: boolean } = {};
 
     constructor() {
+        console.log('Game: Initializing...');
+        // Initialize scene first
         this.scene = new THREE.Scene();
-        this.camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-        this.renderer = new THREE.WebGLRenderer({ antialias: true });
-        this.clock = new THREE.Clock();
+        console.log('Game: Scene created');
         
+        // Then initialize world
+        this.world = new World(this.scene);
+        console.log('Game: World initialized');
+        
+        // Initialize other components
+        this.camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        this.camera.position.y = 2; // Set initial camera height
+        console.log('Game: Camera initialized');
+        
+        this.renderer = new THREE.WebGLRenderer({ antialias: true });
         this.renderer.setSize(window.innerWidth, window.innerHeight);
+        this.renderer.setPixelRatio(window.devicePixelRatio);
         document.body.appendChild(this.renderer.domElement);
 
-        this.setupLights();
-        this.setupWorld();
-        
+        this.clock = new THREE.Clock();
         this.player = new Player(this.camera, this.scene);
-        // Set initial position after world is created
-        this.player.setInitialPosition(this.world.getColliders());
+
+        // Set initial position
+        this.player.initializePosition(this.world.getColliders());
+
+        this.setupEventListeners();
 
         // Event listeners
         window.addEventListener('resize', this.onWindowResize.bind(this));
     }
 
-    private setupLights() {
-        // Setup lighting
-        const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
-        this.scene.add(ambientLight);
-        
-        const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
-        directionalLight.position.set(0, 50, 0);
-        this.scene.add(directionalLight);
+    public start() {
+        // Start the game loop
+        this.animate();
     }
 
-    private setupWorld() {
-        // Initialize game components
-        this.world = new World(this.scene);
+    private setupEventListeners() {
+        document.addEventListener('keydown', (event) => {
+            switch(event.code) {
+                case 'KeyW':
+                case 'KeyS':
+                case 'KeyA':
+                case 'KeyD':
+                case 'Space':
+                    this.keys[event.code] = true;
+                    break;
+                case 'KeyR':
+                    this.player.reload();
+                    break;
+            }
+        });
+
+        document.addEventListener('keyup', (event) => {
+            if (this.keys.hasOwnProperty(event.code)) {
+                this.keys[event.code] = false;
+            }
+        });
     }
 
     private onWindowResize() {
@@ -51,21 +77,13 @@ export class Game {
         this.renderer.setSize(window.innerWidth, window.innerHeight);
     }
 
-    public update() {
+    private animate() {
+        requestAnimationFrame(this.animate.bind(this));
         const delta = this.clock.getDelta();
-        
-        // Update game components
-        this.player.update(delta, this.world.getColliders());
-        
-        // Render
-        this.renderer.render(this.scene, this.camera);
-    }
 
-    public start() {
-        const animate = () => {
-            requestAnimationFrame(animate);
-            this.update();
-        };
-        animate();
+        this.player.update(delta, this.world.getColliders());
+        this.world.update();
+
+        this.renderer.render(this.scene, this.camera);
     }
 }
